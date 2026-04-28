@@ -180,12 +180,15 @@ def find_cached_answer(db: Session, question: str):
 
     project = None
     projects = db.query(ProjectFact.project_name).distinct().all()
+    project_names = [row[0] for row in projects if row[0]]
 
-    for row in projects:
-        name = row[0]
-        if name and name.lower() in q:
+    for name in project_names:
+        if name.lower() in q:
             project = name
             break
+
+    if not project and len(project_names) == 1:
+        project = project_names[0]
 
     if not project:
         return None
