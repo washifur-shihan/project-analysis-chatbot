@@ -28,7 +28,12 @@ def init_pinecone():
 index = init_pinecone()
 
 
-def upsert_chunks(chunks):
+def upsert_chunks(chunks, batch_size=50):
+    """
+    Upsert chunks to Pinecone in smaller batches to avoid request size limits.
+    Pinecone has a ~4MB max request size. Large metadata + embeddings can exceed this.
+    Default batch_size=50, reduce to 25 if you still hit limits.
+    """
     vectors = []
 
     for chunk in chunks:
@@ -41,8 +46,13 @@ def upsert_chunks(chunks):
             }
         })
 
-    if vectors:
-        index.upsert(vectors=vectors)
+    if not vectors:
+        return
+
+    # Upsert in batches to stay under Pinecone's request size limit
+    for i in range(0, len(vectors), batch_size):
+        batch = vectors[i:i + batch_size]
+        index.upsert(vectors=batch)
 
 
 def search_similar(query_embedding, top_k=5):
