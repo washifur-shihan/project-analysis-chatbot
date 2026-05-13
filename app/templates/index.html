@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,6 +9,7 @@
 
   <link rel="stylesheet" href="{{ url_for('static', path='/css/style.css') }}" />
 </head>
+
 <body>
   <main class="page">
     <section class="chat-shell">
@@ -16,34 +18,63 @@
           <p class="eyebrow">PMify AI Assistant</p>
           <h1>Project Knowledge Chatbot</h1>
           <p class="subtitle">
-            Ask about project status, tasks, meetings, risks, issues, decisions, and action points.
+            Chat globally across all projects or target one project by ID. Supports project data, RAIDD, AI detections,
+            emails, risks, issues, dependencies, tasks, and meetings.
           </p>
         </div>
-
-        <button id="syncBtn" class="sync-btn" type="button">
-          Sync Data
-        </button>
       </header>
+
+      <section class="control-panel">
+        <div class="mode-card">
+          <label class="label">Chat Mode</label>
+
+          <div class="mode-toggle">
+            <label>
+              <input type="radio" name="chatMode" value="global" checked />
+              <span>Global</span>
+            </label>
+
+            <label>
+              <input type="radio" name="chatMode" value="single" />
+              <span>Single Project</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="project-card">
+          <label class="label" for="projectIdInput">Project ID</label>
+          <input id="projectIdInput" type="text" placeholder="Paste project ID for single project chat/sync"
+            autocomplete="off" disabled />
+        </div>
+
+        <div class="sync-actions">
+          <button id="syncGlobalBtn" class="sync-btn" type="button">
+            Sync Global
+          </button>
+
+          <button id="syncProjectBtn" class="sync-btn secondary" type="button" disabled>
+            Sync Project
+          </button>
+        </div>
+      </section>
 
       <section id="chatBox" class="chat-box">
         <div class="message bot-message">
           <div class="avatar">AI</div>
           <div class="bubble">
-            Hi! Ask me something like:
+            Hi! Choose <strong>Global</strong> to ask across all projects, or choose
+            <strong>Single Project</strong> and enter a project ID.
+            <br /><br />
+            Example:
             <br />
-            <strong>“What is the Tandob project status?”</strong>
+            <strong>“What are the RAIDD risks?”</strong>
           </div>
         </div>
       </section>
 
       <form id="chatForm" class="chat-form">
-        <input
-          id="questionInput"
-          type="text"
-          placeholder="Ask about your project..."
-          autocomplete="off"
-          required
-        />
+        <input id="questionInput" type="text"
+          placeholder="Ask about project status, RAIDD, risks, issues, dependencies..." autocomplete="off" required />
         <button id="sendBtn" type="submit">Send</button>
       </form>
     </section>
@@ -54,7 +85,39 @@
     const chatForm = document.getElementById("chatForm");
     const questionInput = document.getElementById("questionInput");
     const sendBtn = document.getElementById("sendBtn");
-    const syncBtn = document.getElementById("syncBtn");
+
+    const projectIdInput = document.getElementById("projectIdInput");
+    const syncGlobalBtn = document.getElementById("syncGlobalBtn");
+    const syncProjectBtn = document.getElementById("syncProjectBtn");
+    const modeInputs = document.querySelectorAll("input[name='chatMode']");
+
+    function getMode() {
+      return document.querySelector("input[name='chatMode']:checked").value;
+    }
+
+    function getProjectId() {
+      return projectIdInput.value.trim();
+    }
+
+    function setModeState() {
+      const mode = getMode();
+      const isSingle = mode === "single";
+
+      projectIdInput.disabled = !isSingle;
+      syncProjectBtn.disabled = !isSingle || !getProjectId();
+
+      if (isSingle) {
+        projectIdInput.focus();
+      }
+    }
+
+    modeInputs.forEach((input) => {
+      input.addEventListener("change", setModeState);
+    });
+
+    projectIdInput.addEventListener("input", () => {
+      syncProjectBtn.disabled = getMode() !== "single" || !getProjectId();
+    });
 
     function addMessage(text, type = "bot") {
       const message = document.createElement("div");
@@ -76,6 +139,8 @@
     }
 
     function addLoading() {
+      removeLoading();
+
       const loading = document.createElement("div");
       loading.className = "message bot-message";
       loading.id = "loadingMessage";
@@ -96,24 +161,118 @@
       if (loading) loading.remove();
     }
 
+    function setButtonLoading(button, loadingText) {
+      button.dataset.originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = loadingText;
+    }
+
+    function resetButton(button) {
+      button.disabled = false;
+      button.textContent = button.dataset.originalText || button.textContent;
+      setModeState();
+    }
+
+    async function syncGlobal() {
+      setButtonLoading(syncGlobalBtn, "Syncing...");
+
+      try {
+        const response = await fetch("/sync", {
+          method: "POST",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          addMessage(data.detail || "Global sync failed. Please check server logs.");
+          return;
+        }
+
+        addMessage(
+          `Global knowledge synced successfully.\nChunks synced: ${data.synced_chunks || 0}`
+        );
+      } catch (error) {
+        addMessage("Could not sync global data. Server connection failed.");
+      } finally {
+        resetButton(syncGlobalBtn);
+      }
+    }
+
+    async function syncProject() {
+      const projectId = getProjectId();
+
+      if (!projectId) {
+        addMessage("Please enter a project ID first.");
+        return;
+      }
+
+      setButtonLoading(syncProjectBtn, "Syncing...");
+
+      try {
+        const response = await fetch(`/sync/project/${encodeURIComponent(projectId)}`, {
+          method: "POST",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          addMessage(data.detail || "Project sync failed. Please check server logs.");
+          return;
+        }
+
+        addMessage(
+          `Project synced successfully.\nProject ID: ${projectId}\nChunks synced: ${data.synced_chunks || 0}`
+        );
+      } catch (error) {
+        addMessage("Could not sync project data. Server connection failed.");
+      } finally {
+        resetButton(syncProjectBtn);
+      }
+    }
+
     chatForm.addEventListener("submit", async (event) => {
       event.preventDefault();
 
       const question = questionInput.value.trim();
+      const mode = getMode();
+      const projectId = getProjectId();
+
       if (!question) return;
 
-      addMessage(question, "user");
+      if (mode === "single" && !projectId) {
+        addMessage("Please enter a project ID for single project chat.");
+        projectIdInput.focus();
+        return;
+      }
+
+      const displayedQuestion =
+        mode === "single"
+          ? `${question}\n\nProject ID: ${projectId}`
+          : question;
+
+      addMessage(displayedQuestion, "user");
+
       questionInput.value = "";
       sendBtn.disabled = true;
       addLoading();
 
       try {
-        const response = await fetch("/chat", {
+        const endpoint =
+          mode === "single"
+            ? `/chat/project/${encodeURIComponent(projectId)}`
+            : "/chat";
+
+        const body =
+          mode === "single"
+            ? { question, project_id: projectId }
+            : { question };
+
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ question }),
+          body: JSON.stringify(body),
         });
 
         const data = await response.json();
@@ -121,7 +280,7 @@
         removeLoading();
 
         if (!response.ok) {
-          addMessage("Something went wrong. Please try again.");
+          addMessage(data.detail || "Something went wrong. Please try again.");
           return;
         }
 
@@ -135,29 +294,11 @@
       }
     });
 
-    syncBtn.addEventListener("click", async () => {
-      syncBtn.disabled = true;
-      syncBtn.textContent = "Syncing...";
+    syncGlobalBtn.addEventListener("click", syncGlobal);
+    syncProjectBtn.addEventListener("click", syncProject);
 
-      try {
-        const response = await fetch("/sync", {
-          method: "POST",
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          addMessage(`Knowledge synced successfully. Chunks synced: ${data.synced_chunks || 0}`);
-        } else {
-          addMessage("Sync failed. Please check the server logs.");
-        }
-      } catch (error) {
-        addMessage("Could not sync data. Server connection failed.");
-      } finally {
-        syncBtn.disabled = false;
-        syncBtn.textContent = "Sync Data";
-      }
-    });
+    setModeState();
   </script>
 </body>
+
 </html>
